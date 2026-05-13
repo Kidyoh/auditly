@@ -1,0 +1,218 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-inter);
+  --font-mono: ui-monospace, 'Cascadia Code', 'Source Code Pro', Menlo, monospace;
+  --font-heading: var(--font-inter);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-surface: var(--surface);
+  --color-surface-subtle: var(--surface-subtle);
+  --color-hairline: var(--hairline);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+  --shadow-elevated: 0 1px 2px rgba(15, 23, 42, 0.04), 0 4px 14px -4px rgba(15, 23, 42, 0.06);
+  --shadow-pop: 0 1px 2px rgba(15, 23, 42, 0.05), 0 8px 24px -8px rgba(15, 23, 42, 0.12);
+}
+
+/* Repo Audit — light professional theme */
+:root {
+  --background: #f7f8fb;
+  --foreground: #0b1220;
+  --card: #ffffff;
+  --card-foreground: #0b1220;
+  --popover: #ffffff;
+  --popover-foreground: #0b1220;
+  --primary: #2563eb;
+  --primary-foreground: #ffffff;
+  --secondary: #f1f3f8;
+  --secondary-foreground: #0b1220;
+  --muted: #f1f3f8;
+  --muted-foreground: #5b6478;
+  --accent: #eef2ff;
+  --accent-foreground: #1e3a8a;
+  --destructive: #dc2626;
+  --border: #e6e8ef;
+  --input: #e6e8ef;
+  --ring: #2563eb;
+  --chart-1: #2563eb;
+  --chart-2: #ea580c;
+  --chart-3: #ca8a04;
+  --chart-4: #16a34a;
+  --chart-5: #dc2626;
+  --radius: 0.625rem;
+  --sidebar: #ffffff;
+  --sidebar-foreground: #0b1220;
+  --sidebar-primary: #2563eb;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #eef2ff;
+  --sidebar-accent-foreground: #1e3a8a;
+  --sidebar-border: #e6e8ef;
+  --sidebar-ring: #2563eb;
+  --surface: #ffffff;
+  --surface-subtle: #f4f5f9;
+  --hairline: #e6e8ef;
+}
+
+.dark {
+  --background: #f7f8fb;
+  --foreground: #0b1220;
+  --card: #ffffff;
+  --card-foreground: #0b1220;
+  --popover: #ffffff;
+  --popover-foreground: #0b1220;
+  --primary: #2563eb;
+  --primary-foreground: #ffffff;
+  --secondary: #f1f3f8;
+  --secondary-foreground: #0b1220;
+  --muted: #f1f3f8;
+  --muted-foreground: #5b6478;
+  --accent: #eef2ff;
+  --accent-foreground: #1e3a8a;
+  --destructive: #dc2626;
+  --border: #e6e8ef;
+  --input: #e6e8ef;
+  --ring: #2563eb;
+  --chart-1: #2563eb;
+  --chart-2: #ea580c;
+  --chart-3: #ca8a04;
+  --chart-4: #16a34a;
+  --chart-5: #dc2626;
+  --sidebar: #ffffff;
+  --sidebar-foreground: #0b1220;
+  --sidebar-primary: #2563eb;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #eef2ff;
+  --sidebar-accent-foreground: #1e3a8a;
+  --sidebar-border: #e6e8ef;
+  --sidebar-ring: #2563eb;
+  --surface: #ffffff;
+  --surface-subtle: #f4f5f9;
+  --hairline: #e6e8ef;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-family: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+    font-feature-settings: 'cv11', 'ss01', 'ss03';
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  html {
+    @apply font-sans;
+  }
+  code, pre {
+    font-family: ui-monospace, 'Cascadia Code', 'Source Code Pro', Menlo, monospace;
+  }
+  ::selection {
+    background-color: color-mix(in oklab, var(--primary) 18%, transparent);
+    color: var(--foreground);
+  }
+}
+
+/* Ambient page background — a quiet, professional canvas */
+@layer base {
+  body {
+    background-image:
+      radial-gradient(900px 540px at 12% -8%, color-mix(in oklab, var(--primary) 7%, transparent), transparent 60%),
+      radial-gradient(720px 460px at 100% 0%, color-mix(in oklab, #6366f1 6%, transparent), transparent 55%),
+      linear-gradient(180deg, #f9fafd 0%, #f4f5f9 100%);
+    background-attachment: fixed;
+  }
+}
+
+/* Utility surfaces */
+@utility surface-card {
+  background-color: var(--card);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-elevated);
+}
+
+@utility surface-card-flat {
+  background-color: var(--card);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-lg);
+}
+
+@utility hairline-divider {
+  border-color: var(--hairline);
+}
+
+/* Subtle grid texture for hero/eyebrow regions */
+@utility bg-grid-soft {
+  background-image:
+    linear-gradient(to right, color-mix(in oklab, var(--foreground) 4%, transparent) 1px, transparent 1px),
+    linear-gradient(to bottom, color-mix(in oklab, var(--foreground) 4%, transparent) 1px, transparent 1px);
+  background-size: 28px 28px;
+}
+
+/* Scrollbar (light) */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #d4d6df;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #b9bcc7;
+  background-clip: padding-box;
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
