@@ -8,6 +8,7 @@ import type { ScanProgressEvent, ScanResult, RepoScanResult } from '@/lib/types'
 
 interface RunScanButtonProps {
   auditDisabledReason?: string | null;
+  selectedRepoIds?: string[];
   onScanAbort?: () => void;
   onScanUpdate: (repos: RepoScanResult[]) => void;
   onScanComplete: (result: ScanResult) => void;
@@ -45,7 +46,7 @@ function applyScanProgressEvent(
   if (event.progress !== undefined) h.setProgress(event.progress);
 
   if (event.type === 'repo_start' && event.repoName) {
-    h.setScanningRepo(`${event.project ?? ''}/${event.repoName}`);
+    h.setScanningRepo(`${event.owner ?? ''}/${event.repoName}`);
   }
 
   if (event.type === 'repo_done' && event.result) {
@@ -91,6 +92,7 @@ async function consumeScanSseBody(
 
 export function RunScanButton({
   auditDisabledReason,
+  selectedRepoIds,
   onScanAbort,
   onScanUpdate,
   onScanComplete,
@@ -104,6 +106,8 @@ export function RunScanButton({
   const [error, setError] = useState('');
   const abortRef = useRef<AbortController | null>(null);
 
+  const selectionCount = selectedRepoIds?.length ?? 0;
+
   const handleScan = useCallback(async () => {
     setError('');
     setStatusMsg('');
@@ -115,19 +119,18 @@ export function RunScanButton({
     abortRef.current = abort;
 
     try {
+      const body = selectionCount > 0 ? JSON.stringify({ repoIds: selectedRepoIds }) : undefined;
+
       const res = await fetch('/api/scan', {
         method: 'POST',
+        headers: body ? { 'Content-Type': 'application/json' } : undefined,
+        body,
         signal: abort.signal,
       });
 
       if (!res.ok) {
         const data = (await res.json()) as { error?: string };
-        throw new Error(
-          data.error ??
-            (res.status === 503
-              ? 'Configure AZURE_ORG_URL and AZURE_PAT on the server (.env.local).'
-              : `HTTP ${res.status}`),
-        );
+        throw new Error(data.error ?? `HTTP ${res.status}`);
       }
 
       if (!res.body) throw new Error('No response body');
@@ -149,7 +152,7 @@ export function RunScanButton({
       setScanningRepo('');
       abortRef.current = null;
     }
-  }, [onScanUpdate, onScanComplete, onScanStart, setIsScanning, setScanningRepo]);
+  }, [onScanUpdate, onScanComplete, onScanStart, setIsScanning, setScanningRepo, selectedRepoIds, selectionCount]);
 
   const auditBlocked = !!auditDisabledReason;
 
@@ -167,6 +170,7 @@ export function RunScanButton({
   }
 
   const progressPct = progress ? Math.round((progress.current / progress.total) * 100) : 0;
+  const buttonLabel = selectionCount > 0 ? `Audit ${selectionCount} repo${selectionCount === 1 ? '' : 's'}` : 'Run audit';
 
   return (
     <div className="space-y-3">
@@ -189,7 +193,7 @@ export function RunScanButton({
           className="w-full justify-center bg-linear-to-b from-primary to-primary/90 font-semibold shadow-[0_8px_18px_-8px_color-mix(in_oklab,var(--primary)_70%,transparent)] ring-1 ring-primary/40 transition-shadow hover:from-primary hover:to-primary [a]:hover:bg-primary"
         >
           <Play className="mr-2 h-3.5 w-3.5 fill-current" />
-          Run audit
+          {buttonLabel}
         </Button>
       )}
 

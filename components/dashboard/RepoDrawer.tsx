@@ -17,8 +17,11 @@ import {
   ShieldAlert,
   CheckCircle2,
   ExternalLink,
+  GitBranch,
+  Clock,
+  Link2,
 } from 'lucide-react';
-import type { RepoScanResult, VulnPackage } from '@/lib/types';
+import type { CVEDetail, RepoScanResult, VulnPackage } from '@/lib/types';
 
 interface RepoDrawerProps {
   repo: RepoScanResult | null;
@@ -26,6 +29,41 @@ interface RepoDrawerProps {
   onClose: () => void;
 }
 
+// ─── severity colour tokens ────────────────────────────────────────────────
+const SEVERITY_BORDER: Record<string, string> = {
+  CRITICAL: 'border-l-red-500',
+  HIGH: 'border-l-orange-400',
+  MEDIUM: 'border-l-yellow-400',
+  LOW: 'border-l-blue-400',
+};
+const SEVERITY_BG: Record<string, string> = {
+  CRITICAL: 'bg-red-50/60',
+  HIGH: 'bg-orange-50/60',
+  MEDIUM: 'bg-yellow-50/40',
+  LOW: 'bg-blue-50/40',
+};
+
+// ─── helpers ──────────────────────────────────────────────────────────────
+function fmtDate(iso: string): string | null {
+  if (!iso) return null;
+  try {
+    return new Date(iso).toLocaleDateString(undefined, {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+    });
+  } catch {
+    return null;
+  }
+}
+
+function aliasHref(alias: string): string | null {
+  if (/^CVE-/i.test(alias)) return `https://nvd.nist.gov/vuln/detail/${alias}`;
+  if (/^GHSA-/i.test(alias)) return `https://github.com/advisories/${alias}`;
+  return null;
+}
+
+// ─── sub-components ───────────────────────────────────────────────────────
 function PersistenceAlert({ paths }: Readonly<{ paths: string[] }>) {
   return (
     <div className="space-y-3 rounded-lg border border-red-200 bg-red-50 p-4">
@@ -40,7 +78,7 @@ function PersistenceAlert({ paths }: Readonly<{ paths: string[] }>) {
           </li>
         ))}
       </ul>
-      <p className="text-muted-foreground text-xs leading-relaxed">
+      <p className="text-xs leading-relaxed text-muted-foreground">
         These paths are often unrelated to dependency removal. Confirm intent and delete in source
         control if inappropriate.
       </p>
@@ -48,60 +86,143 @@ function PersistenceAlert({ paths }: Readonly<{ paths: string[] }>) {
   );
 }
 
+function CveCard({ cve }: Readonly<{ cve: CVEDetail }>) {
+  const borderCls = SEVERITY_BORDER[cve.severity] ?? 'border-l-border';
+  const bgCls = SEVERITY_BG[cve.severity] ?? '';
+  const publishedLabel = fmtDate(cve.published);
+  const modifiedLabel = fmtDate(cve.modified);
+
+  // Primary external links based on ID format
+  const osvHref = `https://osv.dev/vulnerability/${cve.id}`;
+  const isGhsa = /^GHSA-/i.test(cve.id);
+  const primaryHref = isGhsa ? `https://github.com/advisories/${cve.id}` : osvHref;
+  const primaryLabel = isGhsa ? 'GitHub Advisory' : 'OSV.dev';
+
+  return (
+    <div
+      className={`rounded-lg border border-l-[3px] ${borderCls} ${bgCls} space-y-3 p-3.5`}
+    >
+      {/* Header row */}
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <a
+            href={primaryHref}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1 font-mono text-xs font-semibold text-foreground underline-offset-2 hover:underline"
+          >
+            {cve.id}
+            <ExternalLink className="h-3 w-3 text-muted-foreground" />
+          </a>
+          {/* Extra link to OSV if the primary was GitHub */}
+          {isGhsa && (
+            <a
+              href={osvHref}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-0.5 text-[10px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+            >
+              <Link2 className="h-3 w-3" />
+              OSV
+            </a>
+          )}
+          {cve.cvssScore !== undefined && (
+            <span className="rounded border border-hairline bg-card px-1.5 py-0.5 font-mono text-[10px] font-medium text-foreground">
+              CVSS&nbsp;{cve.cvssScore.toFixed(1)}
+            </span>
+          )}
+        </div>
+        <SeverityBadge severity={cve.severity} />
+      </div>
+
+      {/* Summary */}
+      <p className="text-xs leading-relaxed text-foreground/90">{cve.summary}</p>
+
+      {/* Aliases */}
+      {cve.aliases.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="text-[10px] font-medium text-muted-foreground">Also:</span>
+          {cve.aliases.map((alias) => {
+            const href = aliasHref(alias);
+            return href ? (
+              <a
+                key={alias}
+                href={href}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-0.5 rounded border border-hairline bg-card px-1.5 py-0.5 font-mono text-[10px] text-primary underline-offset-2 hover:underline"
+              >
+                {alias}
+                <ExternalLink className="h-2.5 w-2.5" />
+              </a>
+            ) : (
+              <span
+                key={alias}
+                className="rounded border border-hairline bg-card px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground"
+              >
+                {alias}
+              </span>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Dates */}
+      {(publishedLabel || modifiedLabel) && (
+        <div className="flex flex-wrap gap-3 text-[10px] text-muted-foreground">
+          {publishedLabel && (
+            <span className="flex items-center gap-1">
+              <Clock className="h-3 w-3" />
+              Published {publishedLabel}
+            </span>
+          )}
+          {modifiedLabel && modifiedLabel !== publishedLabel && (
+            <span>Updated {modifiedLabel}</span>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function VulnPackageCard({ pkg }: Readonly<{ pkg: VulnPackage }>) {
   return (
-    <div className="space-y-3 rounded-lg border border-border bg-card p-4 shadow-sm">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0 flex-1">
+    <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+      {/* Package header */}
+      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border/60 bg-surface-subtle/50 px-4 py-3">
+        <div className="min-w-0 space-y-1">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-sm font-semibold text-foreground">{pkg.name}</span>
-            <span className="text-muted-foreground text-xs">@{pkg.version}</span>
-            <Badge variant="outline" className="text-muted-foreground text-[10px]">
+            <span className="font-mono text-sm font-semibold text-foreground">{pkg.name}</span>
+            <span className="text-xs text-muted-foreground">@{pkg.version}</span>
+            <Badge variant="outline" className="text-[10px] text-muted-foreground">
               {pkg.ecosystem}
             </Badge>
-            {pkg.isWatchlisted ? (
-              <Badge variant="outline" className="border-red-200 bg-red-50 text-[10px] text-red-800">
+            {pkg.isWatchlisted && (
+              <Badge variant="outline" className="border-red-200 bg-red-50 text-[10px] font-semibold text-red-800">
                 Watchlist
               </Badge>
-            ) : null}
+            )}
           </div>
-          <p className="text-muted-foreground mt-1 truncate text-xs">{pkg.manifestFile}</p>
+          <p className="truncate text-[11px] text-muted-foreground">{pkg.manifestFile}</p>
         </div>
         <SeverityBadge severity={pkg.severity} />
       </div>
 
-      {pkg.vulnerabilities.length > 0 && (
-        <div className="space-y-2 border-t border-border pt-3">
+      {/* CVE list */}
+      {pkg.vulnerabilities.length > 0 ? (
+        <div className="space-y-2.5 p-3.5">
           {pkg.vulnerabilities.map((cve) => (
-            <div key={cve.id} className="space-y-1 border-l-2 border-primary/30 pl-3">
-              <div className="flex flex-wrap items-center gap-2">
-                <a
-                  href={`https://osv.dev/vulnerability/${cve.id}`}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-primary inline-flex items-center gap-1 text-xs font-medium underline-offset-2 hover:underline"
-                >
-                  {cve.id}
-                  <ExternalLink className="h-3 w-3" />
-                </a>
-                <SeverityBadge severity={cve.severity} />
-              </div>
-              <p className="text-muted-foreground text-xs leading-relaxed">{cve.summary}</p>
-              {cve.aliases.length > 0 ? (
-                <p className="font-mono text-[10px] text-muted-foreground">
-                  Aliases: {cve.aliases.join(', ')}
-                </p>
-              ) : null}
-            </div>
+            <CveCard key={cve.id} cve={cve} />
           ))}
         </div>
-      )}
+      ) : null}
 
+      {/* Watchlist-only explanation (no OSV hits) */}
       {pkg.isWatchlisted && pkg.vulnerabilities.length === 0 && (
-        <div className="border-l-2 border-red-300 pl-3">
+        <div className="border-l-[3px] border-l-red-500 bg-red-50/50 p-3.5">
           <p className="text-xs leading-relaxed text-red-800">
-            Listed on internal watchlist for known malicious npm campaigns (e.g. typosquatting).
-            Remove after verification.
+            This package matches the internal watchlist for known malicious campaigns (e.g.
+            typosquatting). No OSV entries found — verify and remove if unintentional.
           </p>
         </div>
       )}
@@ -109,46 +230,60 @@ function VulnPackageCard({ pkg }: Readonly<{ pkg: VulnPackage }>) {
   );
 }
 
-function RepoDrawerHeaderStats({ repo }: Readonly<{ repo: RepoScanResult }>) {
+function RepoMeta({ repo }: Readonly<{ repo: RepoScanResult }>) {
+  const scannedLabel = repo.scannedAt ? fmtDate(repo.scannedAt) : null;
   return (
-    <div className="mt-4 flex flex-wrap gap-4 text-xs text-muted-foreground">
-      <div className="flex items-center gap-1.5">
+    <div className="mt-3 flex flex-wrap gap-3 text-xs text-muted-foreground">
+      <span className="flex items-center gap-1.5">
+        <GitBranch className="h-3.5 w-3.5" />
+        {repo.defaultBranch}
+      </span>
+      <span className="flex items-center gap-1.5">
         <Package className="h-3.5 w-3.5" />
-        <span>{repo.packages.length} total</span>
-      </div>
-      <div className="flex items-center gap-1.5">
-        <AlertTriangle className="h-3.5 w-3.5" />
-        <span className={repo.vulnPackages.length > 0 ? 'font-medium text-orange-800' : ''}>
+        {repo.packages.length} packages
+      </span>
+      {repo.vulnPackages.length > 0 && (
+        <span className="flex items-center gap-1.5 font-medium text-orange-600">
+          <AlertTriangle className="h-3.5 w-3.5" />
           {repo.vulnPackages.length} flagged
         </span>
-      </div>
-      {repo.persistenceFiles.length > 0 ? (
-        <div className="flex items-center gap-1.5 font-medium text-red-700">
+      )}
+      {repo.persistenceFiles.length > 0 && (
+        <span className="flex items-center gap-1.5 font-medium text-red-600">
           <FileWarning className="h-3.5 w-3.5" />
-          <span>{repo.persistenceFiles.length} persistence path(s)</span>
-        </div>
-      ) : null}
+          {repo.persistenceFiles.length} persistence file{repo.persistenceFiles.length === 1 ? '' : 's'}
+        </span>
+      )}
+      {scannedLabel && (
+        <span className="flex items-center gap-1.5 ml-auto">
+          <Clock className="h-3.5 w-3.5" />
+          Scanned {scannedLabel}
+        </span>
+      )}
     </div>
   );
 }
 
-function RepoDrawerPackagesBody({ repo }: Readonly<{ repo: RepoScanResult }>) {
+function AllPackagesList({ repo }: Readonly<{ repo: RepoScanResult }>) {
   if (repo.status === 'pending') {
     return (
-      <p className="text-muted-foreground text-sm">
+      <p className="text-sm text-muted-foreground">
         Packages will appear here after an audit completes for this repository.
       </p>
     );
   }
   if (repo.packages.length === 0) {
-    return <p className="text-muted-foreground text-sm">No manifest files found.</p>;
+    return <p className="text-sm text-muted-foreground">No manifest files found.</p>;
   }
+
+  const vulnSet = new Set(
+    repo.vulnPackages.map((v) => `${v.ecosystem}:${v.name}`),
+  );
+
   return (
     <div className="divide-y divide-border overflow-hidden rounded-lg border border-border bg-card">
       {repo.packages.map((pkg, i) => {
-        const isVuln = repo.vulnPackages.some(
-          (v) => v.name === pkg.name && v.ecosystem === pkg.ecosystem,
-        );
+        const isVuln = vulnSet.has(`${pkg.ecosystem}:${pkg.name}`);
         return (
           <div
             key={`${pkg.ecosystem}:${pkg.name}:${i}`}
@@ -156,19 +291,19 @@ function RepoDrawerPackagesBody({ repo }: Readonly<{ repo: RepoScanResult }>) {
           >
             <div className="flex min-w-0 items-center gap-3">
               {isVuln ? (
-                <AlertTriangle className="text-orange-600 h-3.5 w-3.5 shrink-0" />
+                <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-orange-600" />
               ) : (
                 <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-500/70" />
               )}
               <span
-                className={`truncate text-xs ${isVuln ? 'font-medium text-orange-950' : 'text-foreground'}`}
+                className={`truncate font-mono text-xs ${isVuln ? 'font-medium text-orange-900' : 'text-foreground'}`}
               >
                 {pkg.name}
               </span>
             </div>
             <div className="flex shrink-0 items-center gap-2">
-              <span className="text-muted-foreground text-[10px]">{pkg.version}</span>
-              <Badge variant="outline" className="text-muted-foreground text-[10px]">
+              <span className="text-[10px] text-muted-foreground">{pkg.version}</span>
+              <Badge variant="outline" className="text-[10px] text-muted-foreground">
                 {pkg.ecosystem}
               </Badge>
             </div>
@@ -179,80 +314,97 @@ function RepoDrawerPackagesBody({ repo }: Readonly<{ repo: RepoScanResult }>) {
   );
 }
 
-function repoDrawerAuditFooter(repo: RepoScanResult): string {
-  if (repo.status === 'pending') {
-    return 'Not audited yet';
-  }
-  if (repo.scannedAt) {
-    return `Audited at ${new Date(repo.scannedAt).toLocaleString()}`;
-  }
-  return '';
-}
-
+// ─── main export ──────────────────────────────────────────────────────────
 export function RepoDrawer({ repo, open, onClose }: Readonly<RepoDrawerProps>) {
   if (!repo) return null;
 
   const persistencePaths = repo.persistenceFiles.map((f) => f.path);
-  const isPendingRepo = repo.status === 'pending';
-  const subtitle =
-    `${repo.project}` +
-    (isPendingRepo ? ' · awaiting audit' : ` · ${repo.packages.length} packages manifested`);
+  const isPending = repo.status === 'pending';
 
   return (
     <Sheet open={open} onOpenChange={(v) => !v && onClose()}>
-      <SheetContent side="right" className="flex w-full flex-col p-0 sm:max-w-2xl">
+      <SheetContent side="right" className="flex w-full flex-col p-0 sm:max-w-2xl lg:max-w-3xl">
+        {/* Header */}
         <SheetHeader className="shrink-0 border-b border-border px-6 pb-4 pt-6">
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div className="min-w-0">
-              <SheetTitle className="text-lg leading-tight text-foreground">{repo.repoName}</SheetTitle>
-              <SheetDescription className="mt-1 text-sm">{subtitle}</SheetDescription>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0 flex-1">
+              <SheetTitle className="text-lg font-semibold leading-tight text-foreground">
+                {repo.repoName}
+              </SheetTitle>
+              <SheetDescription className="mt-0.5 text-sm text-muted-foreground">
+                {repo.owner}
+                {isPending ? ' · awaiting audit' : ''}
+              </SheetDescription>
             </div>
             <StatusBadge status={repo.status} />
           </div>
-
-          {isPendingRepo ? null : <RepoDrawerHeaderStats repo={repo} />}
+          {!isPending && <RepoMeta repo={repo} />}
         </SheetHeader>
 
+        {/* Scrollable body */}
         <ScrollArea className="min-h-0 flex-1">
-          <div className="space-y-6 px-6 py-5">
-            {isPendingRepo ? (
-              <p className="text-muted-foreground rounded-md border border-dashed bg-muted/30 px-3 py-2 text-xs">
-                Listed from Azure inventory only. Package and vulnerability detail appears after you run{' '}
-                <strong className="text-foreground font-medium">Run audit</strong>.
+          <div className="space-y-7 px-6 py-5">
+
+            {/* Pending state */}
+            {isPending && (
+              <p className="rounded-md border border-dashed bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                Listed from GitHub only. Package and vulnerability detail appears after you run{' '}
+                <strong className="font-medium text-foreground">Run audit</strong>.
               </p>
-            ) : null}
+            )}
 
-            {persistencePaths.length > 0 ? <PersistenceAlert paths={persistencePaths} /> : null}
+            {/* Error */}
+            {repo.status === 'error' && repo.errorMessage && (
+              <div className="rounded-lg border border-border bg-muted/50 p-4">
+                <p className="font-mono text-xs text-red-700">{repo.errorMessage}</p>
+              </div>
+            )}
 
-            {repo.vulnPackages.length > 0 ? (
+            {/* Persistence */}
+            {persistencePaths.length > 0 && (
+              <PersistenceAlert paths={persistencePaths} />
+            )}
+
+            {/* Vulnerabilities */}
+            {repo.vulnPackages.length > 0 && (
               <section className="space-y-3">
-                <h3 className="text-muted-foreground flex items-center gap-2 text-xs font-semibold uppercase tracking-wide">
-                  <AlertTriangle className="h-3.5 w-3.5 text-orange-600" />
-                  Flagged packages ({repo.vulnPackages.length})
+                <h3 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  <AlertTriangle className="h-3.5 w-3.5 text-orange-400" />
+                  Vulnerable packages
+                  <span className="ml-auto rounded-full border border-hairline bg-card px-2 py-0.5 text-[10px] font-medium normal-case tracking-normal text-foreground">
+                    {repo.vulnPackages.length}
+                  </span>
                 </h3>
-                <div className="space-y-3">
+                <div className="space-y-4">
                   {repo.vulnPackages.map((pkg, i) => (
                     <VulnPackageCard key={`${pkg.ecosystem}:${pkg.name}:${i}`} pkg={pkg} />
                   ))}
                 </div>
               </section>
-            ) : null}
+            )}
 
-            <section className="space-y-3">
-              <h3 className="text-muted-foreground flex items-center gap-2 text-xs font-semibold uppercase tracking-wide">
-                <Package className="h-3.5 w-3.5" />
-                All packages ({repo.packages.length})
-              </h3>
-              <RepoDrawerPackagesBody repo={repo} />
-            </section>
-
-            {repo.status === 'error' && repo.errorMessage ? (
-              <div className="rounded-lg border border-border bg-muted/50 p-4">
-                <p className="font-mono text-xs text-red-700">{repo.errorMessage}</p>
+            {/* Clean result */}
+            {!isPending && repo.status === 'clean' && (
+              <div className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+                <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
+                No known vulnerabilities found in this repository.
               </div>
-            ) : null}
+            )}
 
-            <p className="text-muted-foreground pb-2 text-[10px]">{repoDrawerAuditFooter(repo)}</p>
+            {/* All packages */}
+            {!isPending && (
+              <section className="space-y-3">
+                <h3 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  <Package className="h-3.5 w-3.5" />
+                  All packages
+                  <span className="ml-auto rounded-full border border-hairline bg-card px-2 py-0.5 text-[10px] font-medium normal-case tracking-normal text-foreground">
+                    {repo.packages.length}
+                  </span>
+                </h3>
+                <AllPackagesList repo={repo} />
+              </section>
+            )}
+
           </div>
         </ScrollArea>
       </SheetContent>

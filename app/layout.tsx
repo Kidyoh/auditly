@@ -12,9 +12,9 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: 'Repo Audit — Azure DevOps dependency review',
+  title: 'Auditly — GitHub dependency review',
   description:
-    'Audit Azure DevOps repositories across all projects for vulnerable and suspicious packages.',
+    'Audit GitHub repositories across your account and organizations for vulnerable and suspicious packages.',
 };
 
 export default async function RootLayout({
@@ -33,7 +33,7 @@ export default async function RootLayout({
           <footer className="mt-12 border-t border-hairline bg-card/40">
             <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-2 px-4 py-5 text-xs text-muted-foreground sm:flex-row md:px-8">
               <p className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
-                <span className="font-medium text-foreground/80">Repo Audit</span>
+                <span className="font-medium text-foreground/80">Auditly</span>
                 <span aria-hidden>·</span>
                 <span>
                   Vulnerability data from{' '}
@@ -46,9 +46,6 @@ export default async function RootLayout({
                     OSV.dev
                   </a>
                 </span>
-              </p>
-              <p className="text-[11px]">
-                Azure credentials are read from server environment variables only.
               </p>
             </div>
           </footer>

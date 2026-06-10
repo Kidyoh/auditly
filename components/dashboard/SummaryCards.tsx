@@ -1,7 +1,7 @@
 'use client';
 
 import { cn } from '@/lib/utils';
-import { ShieldCheck, AlertTriangle, PackageOpen, CheckCircle2 } from 'lucide-react';
+import { ShieldCheck, AlertTriangle, PackageOpen, CheckCircle2, type LucideIcon } from 'lucide-react';
 import type { ScanResult } from '@/lib/types';
 
 interface SummaryCardsProps {
@@ -15,7 +15,7 @@ type Tone = 'brand' | 'danger' | 'warn' | 'success';
 type Stat = {
   label: string;
   value: number;
-  icon: React.ElementType;
+  icon: LucideIcon;
   tone: Tone;
   subtext?: string;
 };
@@ -122,7 +122,7 @@ export function SummaryCards({
       value: result?.totalRepos ?? 0,
       icon: ShieldCheck,
       tone: 'brand',
-      subtext: result ? `${result.projects.length} project${result.projects.length === 1 ? '' : 's'}` : 'Awaiting inventory',
+      subtext: result ? `${result.owners.length} owner${result.owners.length === 1 ? '' : 's'}` : 'Awaiting inventory',
     },
     {
       label: 'Critical issues',

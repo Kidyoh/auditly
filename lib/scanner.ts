@@ -1,12 +1,7 @@
-import {
-  listAllProjectNames,
-  listAllRepositories,
-  listRepoItems,
-  getFileContent,
-} from './azure';
+import { listAllRepos, getAuthenticatedUser, getRepoTree, getFileContent } from './github';
 import { checkPackages } from './osv';
 import type {
-  AzureRepo,
+  GitHubRepo,
   PackageRef,
   PersistenceFile,
   RepoScanResult,
@@ -109,17 +104,14 @@ function parseManifest(content: string, filePath: string): PackageRef[] {
   return [];
 }
 
-async function scanRepo(
-  orgUrl: string,
-  pat: string,
-  repo: AzureRepo,
-): Promise<RepoScanResult> {
-  const project = repo.project.name;
+async function scanRepo(token: string, repo: GitHubRepo): Promise<RepoScanResult> {
+  const owner = repo.owner.login;
+  const branch = repo.default_branch ?? 'main';
   const scannedAt = new Date().toISOString();
 
   try {
-    const items = await listRepoItems(orgUrl, pat, project, repo.id);
-    const filePaths = items.filter((i) => !i.isFolder).map((i) => i.path);
+    const tree = await getRepoTree(token, owner, repo.name, branch);
+    const filePaths = tree.filter((i) => i.type === 'blob').map((i) => i.path);
 
     const manifestPaths = filePaths.filter((p) => {
       const name = p.split('/').pop() ?? '';
@@ -138,7 +130,7 @@ async function scanRepo(
     const allPackages: PackageRef[] = [];
     await Promise.allSettled(
       manifestPaths.map(async (path) => {
-        const content = await getFileContent(orgUrl, pat, project, repo.id, path, repo.defaultBranch);
+        const content = await getFileContent(token, owner, repo.name, path, branch);
         if (content) allPackages.push(...parseManifest(content, path));
       }),
     );
@@ -147,10 +139,10 @@ async function scanRepo(
     const vulnPackages = await checkPackages(uniquePackages);
 
     const partial = {
-      repoId: repo.id,
+      repoId: String(repo.id),
       repoName: repo.name,
-      project,
-      defaultBranch: repo.defaultBranch ?? 'main',
+      owner,
+      defaultBranch: branch,
       packages: uniquePackages,
       vulnPackages,
       persistenceFiles,
@@ -160,10 +152,10 @@ async function scanRepo(
     return { ...partial, status: repoStatus(partial) };
   } catch (err) {
     return {
-      repoId: repo.id,
+      repoId: String(repo.id),
       repoName: repo.name,
-      project,
-      defaultBranch: repo.defaultBranch ?? 'main',
+      owner,
+      defaultBranch: branch,
       packages: [],
       vulnPackages: [],
       persistenceFiles: [],
@@ -185,60 +177,77 @@ function deduplicatePackages(packages: PackageRef[]): PackageRef[] {
 }
 
 export async function runScan(
-  orgUrl: string,
-  pat: string,
+  token: string,
   onProgress: (event: ScanProgressEvent) => void,
+  targetRepoIds?: string[],
 ): Promise<ScanResult> {
   const scanId = crypto.randomUUID();
   const startedAt = new Date().toISOString();
 
   onProgress({
     type: 'start',
-    message: 'Discovering Azure DevOps projects…',
+    message: 'Discovering GitHub repositories…',
     timestamp: new Date().toISOString(),
   });
 
-  const projects = await listAllProjectNames(orgUrl, pat);
-  if (projects.length === 0) {
+  const [repos, githubLogin] = await Promise.all([
+    listAllRepos(token),
+    getAuthenticatedUser(token),
+  ]);
+
+  if (repos.length === 0) {
     onProgress({
       type: 'error',
-      message: 'No projects found in this Azure DevOps organization.',
+      message: 'No repositories found for this GitHub account.',
       timestamp: new Date().toISOString(),
     });
-    throw new Error('SCAN_NO_PROJECTS');
+    throw new Error('SCAN_NO_REPOS');
+  }
+
+  const filteredRepos =
+    targetRepoIds && targetRepoIds.length > 0
+      ? repos.filter((r) => targetRepoIds.includes(String(r.id)))
+      : repos;
+
+  if (filteredRepos.length === 0) {
+    onProgress({
+      type: 'error',
+      message: 'None of the selected repositories were found.',
+      timestamp: new Date().toISOString(),
+    });
+    throw new Error('SCAN_NO_REPOS');
   }
 
   onProgress({
     type: 'start',
-    message: `Starting scan of ${projects.length} project(s)…`,
+    message: `Starting scan of ${filteredRepos.length} repositor${filteredRepos.length === 1 ? 'y' : 'ies'}…`,
     timestamp: new Date().toISOString(),
   });
 
-  const repos = await listAllRepositories(orgUrl, pat, projects);
   const repoResults: RepoScanResult[] = [];
 
-  for (let i = 0; i < repos.length; i++) {
-    const repo = repos[i];
+  for (let i = 0; i < filteredRepos.length; i++) {
+    const repo = filteredRepos[i];
     onProgress({
       type: 'repo_start',
       repoName: repo.name,
-      project: repo.project.name,
-      message: `Scanning ${repo.project.name}/${repo.name}…`,
+      owner: repo.owner.login,
+      message: `Scanning ${repo.owner.login}/${repo.name}…`,
       timestamp: new Date().toISOString(),
-      progress: { current: i + 1, total: repos.length },
+      progress: { current: i + 1, total: filteredRepos.length },
     });
 
-    const result = await scanRepo(orgUrl, pat, repo);
+    const result = await scanRepo(token, repo);
     repoResults.push(result);
 
     onProgress({
       type: 'repo_done',
       repoName: repo.name,
-      project: repo.project.name,
-      message: `Completed ${repo.project.name}/${repo.name}`,
+      owner: repo.owner.login,
+      message: `Completed ${repo.owner.login}/${repo.name}`,
       result,
       timestamp: new Date().toISOString(),
-      progress: { current: i + 1, total: repos.length },
+      progress: { current: i + 1, total: filteredRepos.length },
     });
   }
 
@@ -248,13 +257,14 @@ export async function runScan(
   const packagesFlagged = repoResults.reduce((acc, r) => acc + r.vulnPackages.length, 0);
   const cleanRepos = repoResults.filter((r) => r.status === 'clean').length;
   const hasPersistenceRisk = repoResults.some((r) => r.persistenceFiles.length > 0);
+  const owners = [...new Set(repoResults.map((r) => r.owner))].sort();
 
   const scanResult: ScanResult = {
     id: scanId,
     startedAt,
     completedAt: new Date().toISOString(),
-    orgUrl,
-    projects,
+    githubLogin,
+    owners,
     repos: repoResults,
     totalRepos: repoResults.length,
     criticalCount,

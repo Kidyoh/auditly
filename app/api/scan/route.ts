@@ -7,30 +7,18 @@ import type { ScanProgressEvent } from '@/lib/types';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-function getServerCredentials(): { orgUrl: string; pat: string } | null {
-  const orgUrl = process.env.AZURE_ORG_URL?.trim() ?? '';
-  const pat = process.env.AZURE_PAT?.trim() ?? '';
-  if (!orgUrl || !pat) return null;
-  return { orgUrl, pat };
-}
-
 function sseMessage(event: ScanProgressEvent): string {
   return `data: ${JSON.stringify(event)}\n\n`;
 }
 
-export async function POST(_req: NextRequest) {
-  const { error: authErr } = await requireAuthSession();
+export async function POST(req: NextRequest) {
+  const { accessToken, error: authErr } = await requireAuthSession();
   if (authErr) return authErr;
 
-  const creds = getServerCredentials();
-
-  if (!creds) {
+  if (!accessToken) {
     return new Response(
-      JSON.stringify({
-        error:
-          'Azure is not configured. Set AZURE_ORG_URL and AZURE_PAT in the server environment (.env.local).',
-      }),
-      { status: 503, headers: { 'Content-Type': 'application/json' } },
+      JSON.stringify({ error: 'No GitHub access token. Please sign out and sign in again.' }),
+      { status: 401, headers: { 'Content-Type': 'application/json' } },
     );
   }
 
@@ -40,6 +28,11 @@ export async function POST(_req: NextRequest) {
       headers: { 'Content-Type': 'application/json' },
     });
   }
+
+  const body = await req.json().catch(() => ({})) as { repoIds?: string[] };
+  const targetRepoIds = Array.isArray(body.repoIds) && body.repoIds.length > 0
+    ? body.repoIds
+    : undefined;
 
   store.isScanning = true;
 
@@ -55,10 +48,10 @@ export async function POST(_req: NextRequest) {
       };
 
       try {
-        const result = await runScan(creds.orgUrl, creds.pat, send);
+        const result = await runScan(accessToken, send, targetRepoIds);
         store.lastResult = result;
       } catch (err) {
-        if (err instanceof Error && err.message === 'SCAN_NO_PROJECTS') {
+        if (err instanceof Error && err.message === 'SCAN_NO_REPOS') {
           /* SSE error already emitted by runScan */
         } else {
           send({

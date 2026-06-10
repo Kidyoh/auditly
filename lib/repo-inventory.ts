@@ -4,7 +4,7 @@ export function discoveryItemToPending(repo: RepoDiscoveryItem): RepoScanResult 
   return {
     repoId: repo.id,
     repoName: repo.name,
-    project: repo.project,
+    owner: repo.owner,
     defaultBranch: repo.defaultBranch,
     packages: [],
     vulnPackages: [],
@@ -19,7 +19,7 @@ export function toPendingShell(base: RepoScanResult): RepoScanResult {
   return {
     repoId: base.repoId,
     repoName: base.repoName,
-    project: base.project,
+    owner: base.owner,
     defaultBranch: base.defaultBranch,
     packages: [],
     vulnPackages: [],
@@ -32,9 +32,9 @@ export function toPendingShell(base: RepoScanResult): RepoScanResult {
 
 export function aggregateScanMetaFromRepos(
   repos: RepoScanResult[],
-  meta: Partial<Pick<ScanResult, 'completedAt' | 'startedAt' | 'orgUrl' | 'id'>>,
+  meta: Partial<Pick<ScanResult, 'completedAt' | 'startedAt' | 'githubLogin' | 'id'>>,
 ): ScanResult {
-  const projects = [...new Set(repos.map((r) => r.project))].sort((a, b) =>
+  const owners = [...new Set(repos.map((r) => r.owner))].sort((a, b) =>
     a.localeCompare(b, undefined, { sensitivity: 'base' }),
   );
 
@@ -42,8 +42,8 @@ export function aggregateScanMetaFromRepos(
     id: meta.id ?? 'display',
     startedAt: meta.startedAt ?? '',
     completedAt: meta.completedAt ?? '',
-    orgUrl: meta.orgUrl ?? '',
-    projects,
+    githubLogin: meta.githubLogin ?? '',
+    owners,
     repos,
     totalRepos: repos.length,
     criticalCount: repos.filter((r) => r.status === 'critical' || r.status === 'persistence_risk')

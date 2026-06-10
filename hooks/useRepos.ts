@@ -6,7 +6,7 @@ import type { RepoDiscoveryItem } from '@/lib/types';
 interface ReposOkResponse {
   ok: true;
   message: string;
-  projectCount: number;
+  ownerCount: number;
   repos: RepoDiscoveryItem[];
 }
 
@@ -18,8 +18,8 @@ interface ReposErrResponse {
 export type ReposResponse = ReposOkResponse | ReposErrResponse;
 
 export function useRepos(enabled = true) {
-  return useQuery<{ repos: RepoDiscoveryItem[]; projectCount: number; message: string }>({
-    queryKey: ['azure-repos'],
+  return useQuery<{ repos: RepoDiscoveryItem[]; ownerCount: number; message: string }>({
+    queryKey: ['github-repos'],
     queryFn: async () => {
       const res = await fetch('/api/repos');
       const data = (await res.json()) as ReposResponse;
@@ -32,7 +32,7 @@ export function useRepos(enabled = true) {
 
       return {
         repos: data.repos,
-        projectCount: data.projectCount,
+        ownerCount: data.ownerCount,
         message: data.message,
       };
     },

@@ -12,6 +12,7 @@ export interface CVEDetail {
   id: string;
   summary: string;
   severity: Severity;
+  cvssScore?: number;
   aliases: string[];
   published: string;
   modified: string;
@@ -33,7 +34,7 @@ export type RepoStatus = 'clean' | 'vulnerable' | 'critical' | 'persistence_risk
 export interface RepoScanResult {
   repoId: string;
   repoName: string;
-  project: string;
+  owner: string;
   defaultBranch: string;
   packages: PackageRef[];
   vulnPackages: VulnPackage[];
@@ -47,8 +48,8 @@ export interface ScanResult {
   id: string;
   startedAt: string;
   completedAt: string;
-  orgUrl: string;
-  projects: string[];
+  githubLogin: string;
+  owners: string[];
   repos: RepoScanResult[];
   totalRepos: number;
   criticalCount: number;
@@ -62,7 +63,7 @@ export type ScanEventType = 'start' | 'repo_start' | 'repo_done' | 'complete' | 
 export interface ScanProgressEvent {
   type: ScanEventType;
   repoName?: string;
-  project?: string;
+  owner?: string;
   message: string;
   result?: RepoScanResult;
   scanResult?: ScanResult;
@@ -70,42 +71,35 @@ export interface ScanProgressEvent {
   progress?: { current: number; total: number };
 }
 
-export interface AzureSettings {
-  orgUrl: string;
-  pat: string;
-  projects: string[];
-}
-
-export interface AzureRepo {
-  id: string;
-  name: string;
-  project: { id: string; name: string };
-  defaultBranch?: string;
-  remoteUrl: string;
-}
-
 /** Flat row from GET /api/repos before any audit run. */
 export interface RepoDiscoveryItem {
   id: string;
   name: string;
-  project: string;
+  owner: string;
   defaultBranch: string;
 }
 
-export interface AzureItemsResponse {
-  value: AzureItem[];
-  count: number;
+// GitHub API types
+export interface GitHubRepo {
+  id: number;
+  name: string;
+  full_name: string;
+  owner: { login: string };
+  default_branch: string;
+  private: boolean;
+  html_url: string;
 }
 
-export interface AzureItem {
-  objectId: string;
-  gitObjectType: string;
-  commitId: string;
+export interface GitHubTreeItem {
   path: string;
-  isFolder: boolean;
+  type: 'blob' | 'tree' | 'commit';
+  sha: string;
   url: string;
 }
 
-export interface AzureFileContent {
-  content: string;
+export interface GitHubTreeResponse {
+  sha: string;
+  url: string;
+  tree: GitHubTreeItem[];
+  truncated: boolean;
 }

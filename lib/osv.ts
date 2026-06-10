@@ -66,10 +66,22 @@ function mapSeverity(vuln: OSVVuln): Severity {
 }
 
 function osvVulnToCVE(vuln: OSVVuln): CVEDetail {
+  // CVSS score may be a raw number string or a full vector (CVSS:3.1/AV:...).
+  // Only store it when it parses to a finite number in 0–10 range.
+  let cvssScore: number | undefined;
+  for (const sv of vuln.severity ?? []) {
+    const n = Number.parseFloat(sv.score);
+    if (Number.isFinite(n) && n >= 0 && n <= 10) {
+      cvssScore = n;
+      break;
+    }
+  }
+
   return {
     id: vuln.id,
     summary: vuln.summary ?? 'No summary available',
     severity: mapSeverity(vuln),
+    cvssScore,
     aliases: vuln.aliases ?? [],
     published: vuln.published ?? '',
     modified: vuln.modified ?? '',
