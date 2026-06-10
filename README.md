@@ -1,36 +1,94 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Auditly
 
-## Getting Started
+Continuous dependency security auditing for your GitHub repositories. Sign in with GitHub, scan your repos for vulnerable packages, and get CVE-level details — all in one dashboard.
 
-First, run the development server:
+## What it does
+
+- **GitHub OAuth sign-in** — uses your own access token, no static credentials needed
+- **Automatic repo discovery** — lists every repo you own or collaborate on
+- **Dependency scanning** — reads `package.json`, `requirements.txt`, `go.mod`, `Cargo.toml`, and other manifests
+- **CVE lookup** — checks each package version against the [OSV.dev](https://osv.dev) database
+- **Real-time progress** — scan streams live via SSE, rows populate as each repo completes
+- **Persistence detection** — flags files that survive uninstall (e.g. husky hooks, postinstall scripts)
+- **Severity breakdown** — Critical / High / Medium / Low badges per repo and per package
+
+## Tech stack
+
+- [Next.js 16](https://nextjs.org) App Router, React 19, TypeScript
+- [NextAuth v5](https://authjs.dev) — GitHub OAuth provider, JWT stores access token
+- [GitHub REST API v3](https://docs.github.com/en/rest) — repo listing and file tree traversal
+- [OSV.dev batch API](https://google.github.io/osv.dev/api/) — open-source vulnerability database
+- [shadcn/ui](https://ui.shadcn.com) + Tailwind CSS v4
+- [Three.js](https://threejs.org) + [@react-three/fiber](https://docs.pmnd.rs/react-three-fiber) + [three-globe](https://github.com/vasturiano/three-globe) — interactive 3D globe on the sign-in page
+
+## Getting started
+
+### 1. Create a GitHub OAuth App
+
+Go to **GitHub → Settings → Developer settings → OAuth Apps → New OAuth App**:
+
+| Field | Value |
+|---|---|
+| Application name | Auditly (local) |
+| Homepage URL | `http://localhost:3000` |
+| Authorization callback URL | `http://localhost:3000/api/auth/callback/github` |
+
+Copy the **Client ID** and generate a **Client Secret**.
+
+### 2. Configure environment variables
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+cp .env.example .env
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Edit `.env`:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```env
+AUTH_SECRET=<random 32-char string — run: openssl rand -base64 32>
+AUTH_URL=http://localhost:3000
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+GITHUB_CLIENT_ID=<from OAuth App>
+GITHUB_CLIENT_SECRET=<from OAuth App>
+```
 
-## Learn More
+### 3. Install and run
 
-To learn more about Next.js, take a look at the following resources:
+```bash
+pnpm install
+pnpm dev
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Open [http://localhost:3000](http://localhost:3000), sign in with GitHub, and run your first audit.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Project structure
 
-## Deploy on Vercel
+```
+app/
+  page.tsx              # Dashboard
+  signin/page.tsx       # Sign-in page with interactive globe
+  api/
+    repos/route.ts      # Lists GitHub repos for the authenticated user
+    scan/route.ts        # SSE endpoint that streams scan progress
+lib/
+  github.ts             # GitHub REST API wrapper
+  scanner.ts            # Repo scanning logic (manifest parsing + OSV lookup)
+  osv.ts                # OSV.dev batch CVE lookup
+  types.ts              # Shared TypeScript types
+components/
+  dashboard/            # Scan controls, repo table, drawer, summary cards
+  layout/               # Navbar, persistence banner
+  ui/                   # shadcn/ui primitives + globe
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Deployment
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Set the same env vars on your host. For Vercel:
+
+```bash
+vercel env add AUTH_SECRET
+vercel env add AUTH_URL          # your production URL
+vercel env add GITHUB_CLIENT_ID
+vercel env add GITHUB_CLIENT_SECRET
+```
+
+Update the GitHub OAuth App's callback URL to match your production domain.
