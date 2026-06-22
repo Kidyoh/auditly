@@ -1,9 +1,17 @@
 import { listAllRepos, getAuthenticatedUser, getRepoTree, getFileContent } from './github';
+import {
+  listAllProjects,
+  getAuthenticatedUser as getGitLabUser,
+  getProjectTree,
+  getFileContent as getGitLabFileContent,
+} from './gitlab';
 import { checkPackages } from './osv';
 import type {
   GitHubRepo,
+  GitLabProject,
   PackageRef,
   PersistenceFile,
+  Provider,
   RepoScanResult,
   ScanResult,
   ScanProgressEvent,
@@ -104,6 +112,18 @@ function parseManifest(content: string, filePath: string): PackageRef[] {
   return [];
 }
 
+function deduplicatePackages(packages: PackageRef[]): PackageRef[] {
+  const seen = new Set<string>();
+  return packages.filter((p) => {
+    const key = `${p.ecosystem}:${p.name}@${p.version}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+// ─── GitHub scanning ──────────────────────────────────────────────────────────
+
 async function scanRepo(token: string, repo: GitHubRepo): Promise<RepoScanResult> {
   const owner = repo.owner.login;
   const branch = repo.default_branch ?? 'main';
@@ -143,6 +163,7 @@ async function scanRepo(token: string, repo: GitHubRepo): Promise<RepoScanResult
       repoName: repo.name,
       owner,
       defaultBranch: branch,
+      provider: 'github' as Provider,
       packages: uniquePackages,
       vulnPackages,
       persistenceFiles,
@@ -156,6 +177,7 @@ async function scanRepo(token: string, repo: GitHubRepo): Promise<RepoScanResult
       repoName: repo.name,
       owner,
       defaultBranch: branch,
+      provider: 'github',
       packages: [],
       vulnPackages: [],
       persistenceFiles: [],
@@ -166,75 +188,139 @@ async function scanRepo(token: string, repo: GitHubRepo): Promise<RepoScanResult
   }
 }
 
-function deduplicatePackages(packages: PackageRef[]): PackageRef[] {
-  const seen = new Set<string>();
-  return packages.filter((p) => {
-    const key = `${p.ecosystem}:${p.name}@${p.version}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
+// ─── GitLab scanning ─────────────────────────────────────────────────────────
+
+async function scanRepoGitLab(token: string, project: GitLabProject): Promise<RepoScanResult> {
+  const owner = project.namespace.path;
+  const branch = project.default_branch ?? 'main';
+  const scannedAt = new Date().toISOString();
+
+  try {
+    const tree = await getProjectTree(token, project.id, branch);
+    const filePaths = tree.filter((i) => i.type === 'blob').map((i) => i.path);
+
+    const manifestPaths = filePaths.filter((p) => {
+      const name = p.split('/').pop() ?? '';
+      return MANIFEST_FILES.has(name);
+    });
+
+    const persistenceDetected = PERSISTENCE_PATHS.filter((pp) =>
+      filePaths.some((fp) => fp.toLowerCase().endsWith(pp.toLowerCase())),
+    );
+
+    const persistenceFiles: PersistenceFile[] = persistenceDetected.map((p) => ({
+      path: p,
+      type: p.includes('.claude') ? 'claude_settings' : 'vscode_tasks',
+    }));
+
+    const allPackages: PackageRef[] = [];
+    await Promise.allSettled(
+      manifestPaths.map(async (path) => {
+        const content = await getGitLabFileContent(token, project.id, path, branch);
+        if (content) allPackages.push(...parseManifest(content, path));
+      }),
+    );
+
+    const uniquePackages = deduplicatePackages(allPackages);
+    const vulnPackages = await checkPackages(uniquePackages);
+
+    const partial = {
+      repoId: String(project.id),
+      repoName: project.name,
+      owner,
+      defaultBranch: branch,
+      provider: 'gitlab' as Provider,
+      packages: uniquePackages,
+      vulnPackages,
+      persistenceFiles,
+      scannedAt,
+    };
+
+    return { ...partial, status: repoStatus(partial) };
+  } catch (err) {
+    return {
+      repoId: String(project.id),
+      repoName: project.name,
+      owner,
+      defaultBranch: branch,
+      provider: 'gitlab',
+      packages: [],
+      vulnPackages: [],
+      persistenceFiles: [],
+      status: 'error',
+      errorMessage: err instanceof Error ? err.message : 'Scan failed',
+      scannedAt,
+    };
+  }
 }
+
+// ─── orchestrator ─────────────────────────────────────────────────────────────
 
 export async function runScan(
   token: string,
   onProgress: (event: ScanProgressEvent) => void,
   targetRepoIds?: string[],
+  provider: Provider = 'github',
 ): Promise<ScanResult> {
   const scanId = crypto.randomUUID();
   const startedAt = new Date().toISOString();
 
   onProgress({
     type: 'start',
-    message: 'Discovering GitHub repositories…',
+    message: `Discovering ${provider === 'gitlab' ? 'GitLab' : 'GitHub'} repositories…`,
     timestamp: new Date().toISOString(),
   });
 
+  if (provider === 'gitlab') {
+    return runGitLabScan(token, onProgress, scanId, startedAt, targetRepoIds);
+  }
+
+  return runGitHubScan(token, onProgress, scanId, startedAt, targetRepoIds);
+}
+
+async function runGitHubScan(
+  token: string,
+  onProgress: (event: ScanProgressEvent) => void,
+  scanId: string,
+  startedAt: string,
+  targetRepoIds?: string[],
+): Promise<ScanResult> {
   const [repos, githubLogin] = await Promise.all([
     listAllRepos(token),
     getAuthenticatedUser(token),
   ]);
 
   if (repos.length === 0) {
-    onProgress({
-      type: 'error',
-      message: 'No repositories found for this GitHub account.',
-      timestamp: new Date().toISOString(),
-    });
+    onProgress({ type: 'error', message: 'No repositories found for this GitHub account.', timestamp: new Date().toISOString() });
     throw new Error('SCAN_NO_REPOS');
   }
 
-  const filteredRepos =
-    targetRepoIds && targetRepoIds.length > 0
-      ? repos.filter((r) => targetRepoIds.includes(String(r.id)))
-      : repos;
+  const filtered = targetRepoIds?.length
+    ? repos.filter((r) => targetRepoIds.includes(String(r.id)))
+    : repos;
 
-  if (filteredRepos.length === 0) {
-    onProgress({
-      type: 'error',
-      message: 'None of the selected repositories were found.',
-      timestamp: new Date().toISOString(),
-    });
+  if (filtered.length === 0) {
+    onProgress({ type: 'error', message: 'None of the selected repositories were found.', timestamp: new Date().toISOString() });
     throw new Error('SCAN_NO_REPOS');
   }
 
   onProgress({
     type: 'start',
-    message: `Starting scan of ${filteredRepos.length} repositor${filteredRepos.length === 1 ? 'y' : 'ies'}…`,
+    message: `Starting scan of ${filtered.length} repositor${filtered.length === 1 ? 'y' : 'ies'}…`,
     timestamp: new Date().toISOString(),
   });
 
   const repoResults: RepoScanResult[] = [];
 
-  for (let i = 0; i < filteredRepos.length; i++) {
-    const repo = filteredRepos[i];
+  for (let i = 0; i < filtered.length; i++) {
+    const repo = filtered[i];
     onProgress({
       type: 'repo_start',
       repoName: repo.name,
       owner: repo.owner.login,
       message: `Scanning ${repo.owner.login}/${repo.name}…`,
       timestamp: new Date().toISOString(),
-      progress: { current: i + 1, total: filteredRepos.length },
+      progress: { current: i + 1, total: filtered.length },
     });
 
     const result = await scanRepo(token, repo);
@@ -247,23 +333,95 @@ export async function runScan(
       message: `Completed ${repo.owner.login}/${repo.name}`,
       result,
       timestamp: new Date().toISOString(),
-      progress: { current: i + 1, total: filteredRepos.length },
+      progress: { current: i + 1, total: filtered.length },
     });
   }
 
+  return buildScanResult(scanId, startedAt, githubLogin, repoResults);
+}
+
+async function runGitLabScan(
+  token: string,
+  onProgress: (event: ScanProgressEvent) => void,
+  scanId: string,
+  startedAt: string,
+  targetRepoIds?: string[],
+): Promise<ScanResult> {
+  const [projects, userLogin] = await Promise.all([
+    listAllProjects(token),
+    getGitLabUser(token),
+  ]);
+
+  if (projects.length === 0) {
+    onProgress({ type: 'error', message: 'No projects found for this GitLab account.', timestamp: new Date().toISOString() });
+    throw new Error('SCAN_NO_REPOS');
+  }
+
+  const filtered = targetRepoIds?.length
+    ? projects.filter((p) => targetRepoIds.includes(String(p.id)))
+    : projects;
+
+  if (filtered.length === 0) {
+    onProgress({ type: 'error', message: 'None of the selected projects were found.', timestamp: new Date().toISOString() });
+    throw new Error('SCAN_NO_REPOS');
+  }
+
+  onProgress({
+    type: 'start',
+    message: `Starting scan of ${filtered.length} project${filtered.length === 1 ? '' : 's'}…`,
+    timestamp: new Date().toISOString(),
+  });
+
+  const repoResults: RepoScanResult[] = [];
+
+  for (let i = 0; i < filtered.length; i++) {
+    const project = filtered[i];
+    const owner = project.namespace.path;
+    onProgress({
+      type: 'repo_start',
+      repoName: project.name,
+      owner,
+      message: `Scanning ${owner}/${project.name}…`,
+      timestamp: new Date().toISOString(),
+      progress: { current: i + 1, total: filtered.length },
+    });
+
+    const result = await scanRepoGitLab(token, project);
+    repoResults.push(result);
+
+    onProgress({
+      type: 'repo_done',
+      repoName: project.name,
+      owner,
+      message: `Completed ${owner}/${project.name}`,
+      result,
+      timestamp: new Date().toISOString(),
+      progress: { current: i + 1, total: filtered.length },
+    });
+  }
+
+  return buildScanResult(scanId, startedAt, userLogin, repoResults);
+}
+
+function buildScanResult(
+  scanId: string,
+  startedAt: string,
+  userLogin: string,
+  repoResults: RepoScanResult[],
+): ScanResult {
   const criticalCount = repoResults.filter(
     (r) => r.status === 'critical' || r.status === 'persistence_risk',
   ).length;
   const packagesFlagged = repoResults.reduce((acc, r) => acc + r.vulnPackages.length, 0);
   const cleanRepos = repoResults.filter((r) => r.status === 'clean').length;
   const hasPersistenceRisk = repoResults.some((r) => r.persistenceFiles.length > 0);
-  const owners = [...new Set(repoResults.map((r) => r.owner))].sort();
+  const owners = [...new Set(repoResults.map((r) => r.owner))].sort((a, b) => a.localeCompare(b));
 
   const scanResult: ScanResult = {
     id: scanId,
     startedAt,
     completedAt: new Date().toISOString(),
-    githubLogin,
+    githubLogin: userLogin,
     owners,
     repos: repoResults,
     totalRepos: repoResults.length,
@@ -272,13 +430,6 @@ export async function runScan(
     cleanRepos,
     hasPersistenceRisk,
   };
-
-  onProgress({
-    type: 'complete',
-    message: `Scan complete. ${repoResults.length} repos scanned.`,
-    scanResult,
-    timestamp: new Date().toISOString(),
-  });
 
   return scanResult;
 }

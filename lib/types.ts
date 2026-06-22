@@ -1,5 +1,6 @@
 export type Severity = 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | 'CLEAN';
 export type Ecosystem = 'npm' | 'PyPI';
+export type Provider = 'github' | 'gitlab';
 
 export interface PackageRef {
   name: string;
@@ -36,6 +37,7 @@ export interface RepoScanResult {
   repoName: string;
   owner: string;
   defaultBranch: string;
+  provider: Provider;
   packages: PackageRef[];
   vulnPackages: VulnPackage[];
   persistenceFiles: PersistenceFile[];
@@ -77,6 +79,7 @@ export interface RepoDiscoveryItem {
   name: string;
   owner: string;
   defaultBranch: string;
+  provider: Provider;
 }
 
 // GitHub API types
@@ -102,4 +105,24 @@ export interface GitHubTreeResponse {
   url: string;
   tree: GitHubTreeItem[];
   truncated: boolean;
+}
+
+// GitLab API types
+export interface GitLabProject {
+  id: number;
+  name: string;
+  path: string;
+  path_with_namespace: string;
+  namespace: { path: string };
+  default_branch: string;
+  visibility: string;
+  web_url: string;
+}
+
+export interface GitLabTreeItem {
+  id: string;
+  name: string;
+  type: 'blob' | 'tree';
+  path: string;
+  mode: string;
 }

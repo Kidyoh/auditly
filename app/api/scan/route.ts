@@ -12,12 +12,12 @@ function sseMessage(event: ScanProgressEvent): string {
 }
 
 export async function POST(req: NextRequest) {
-  const { accessToken, error: authErr } = await requireAuthSession();
+  const { accessToken, provider, error: authErr } = await requireAuthSession();
   if (authErr) return authErr;
 
   if (!accessToken) {
     return new Response(
-      JSON.stringify({ error: 'No GitHub access token. Please sign out and sign in again.' }),
+      JSON.stringify({ error: 'No access token. Please sign out and sign in again.' }),
       { status: 401, headers: { 'Content-Type': 'application/json' } },
     );
   }
@@ -48,7 +48,7 @@ export async function POST(req: NextRequest) {
       };
 
       try {
-        const result = await runScan(accessToken, send, targetRepoIds);
+        const result = await runScan(accessToken, send, targetRepoIds, provider ?? 'github');
         store.lastResult = result;
       } catch (err) {
         if (err instanceof Error && err.message === 'SCAN_NO_REPOS') {

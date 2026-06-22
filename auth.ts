@@ -1,5 +1,6 @@
 import NextAuth from 'next-auth';
 import GitHub from 'next-auth/providers/github';
+import GitLab from 'next-auth/providers/gitlab';
 import { NextResponse } from 'next/server';
 
 const authSecretFromEnv =
@@ -23,6 +24,14 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         params: { scope: 'read:user user:email repo' },
       },
     }),
+    GitLab({
+      clientId: process.env.GITLAB_CLIENT_ID ?? '',
+      clientSecret: process.env.GITLAB_CLIENT_SECRET ?? '',
+      authorization: {
+        url: 'https://gitlab.com/oauth/authorize',
+        params: { scope: 'read_user read_api' },
+      },
+    }),
   ],
   pages: {
     signIn: '/signin',
@@ -32,6 +41,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     jwt({ token, account }) {
       if (account?.access_token) {
         token.accessToken = account.access_token;
+        token.provider = account.provider;
       }
       return token;
     },
@@ -41,6 +51,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       }
       if (token.accessToken) {
         session.accessToken = token.accessToken as string;
+      }
+      if (token.provider) {
+        session.provider = token.provider as string;
       }
       return session;
     },

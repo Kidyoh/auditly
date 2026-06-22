@@ -9,6 +9,7 @@ import {
 } from '@/components/ui/sheet';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { SeverityBadge, StatusBadge } from './SeverityBadge';
 import {
   AlertTriangle,
@@ -20,7 +21,10 @@ import {
   GitBranch,
   Clock,
   Link2,
+  Wrench,
+  Loader2,
 } from 'lucide-react';
+import { useState } from 'react';
 import type { CVEDetail, RepoScanResult, VulnPackage } from '@/lib/types';
 
 interface RepoDrawerProps {
@@ -92,7 +96,6 @@ function CveCard({ cve }: Readonly<{ cve: CVEDetail }>) {
   const publishedLabel = fmtDate(cve.published);
   const modifiedLabel = fmtDate(cve.modified);
 
-  // Primary external links based on ID format
   const osvHref = `https://osv.dev/vulnerability/${cve.id}`;
   const isGhsa = /^GHSA-/i.test(cve.id);
   const primaryHref = isGhsa ? `https://github.com/advisories/${cve.id}` : osvHref;
@@ -114,7 +117,6 @@ function CveCard({ cve }: Readonly<{ cve: CVEDetail }>) {
             {cve.id}
             <ExternalLink className="h-3 w-3 text-muted-foreground" />
           </a>
-          {/* Extra link to OSV if the primary was GitHub */}
           {isGhsa && (
             <a
               href={osvHref}
@@ -185,7 +187,52 @@ function CveCard({ cve }: Readonly<{ cve: CVEDetail }>) {
   );
 }
 
-function VulnPackageCard({ pkg }: Readonly<{ pkg: VulnPackage }>) {
+// ─── fix button state ─────────────────────────────────────────────────────
+type FixStatus = 'idle' | 'loading' | 'done' | 'error';
+
+interface FixState {
+  status: FixStatus;
+  prUrl?: string;
+  newVersion?: string;
+  errorMsg?: string;
+}
+
+interface VulnPackageCardProps {
+  pkg: VulnPackage;
+  repo: RepoScanResult;
+}
+
+function VulnPackageCard({ pkg, repo }: Readonly<VulnPackageCardProps>) {
+  const [fix, setFix] = useState<FixState>({ status: 'idle' });
+
+  async function handleFix() {
+    setFix({ status: 'loading' });
+    try {
+      const res = await fetch('/api/fix', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          owner: repo.owner,
+          repoName: repo.repoName,
+          branch: repo.defaultBranch,
+          provider: repo.provider,
+          projectId: repo.provider === 'gitlab' ? Number(repo.repoId) : null,
+          pkg,
+        }),
+      });
+      const data = (await res.json()) as { ok: boolean; prUrl?: string; newVersion?: string; message?: string };
+      if (!res.ok || !data.ok) {
+        setFix({ status: 'error', errorMsg: data.message ?? 'Fix failed' });
+      } else {
+        setFix({ status: 'done', prUrl: data.prUrl, newVersion: data.newVersion });
+      }
+    } catch {
+      setFix({ status: 'error', errorMsg: 'Network error. Please try again.' });
+    }
+  }
+
+  const prLabel = repo.provider === 'gitlab' ? 'MR' : 'PR';
+
   return (
     <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
       {/* Package header */}
@@ -205,7 +252,52 @@ function VulnPackageCard({ pkg }: Readonly<{ pkg: VulnPackage }>) {
           </div>
           <p className="truncate text-[11px] text-muted-foreground">{pkg.manifestFile}</p>
         </div>
-        <SeverityBadge severity={pkg.severity} />
+        <div className="flex shrink-0 items-center gap-2">
+          <SeverityBadge severity={pkg.severity} />
+          {/* Fix button / result */}
+          {fix.status === 'idle' && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 gap-1.5 px-2.5 text-xs"
+              onClick={handleFix}
+            >
+              <Wrench className="h-3.5 w-3.5" />
+              Fix
+            </Button>
+          )}
+          {fix.status === 'loading' && (
+            <Button size="sm" variant="outline" className="h-7 gap-1.5 px-2.5 text-xs" disabled>
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              Fixing…
+            </Button>
+          )}
+          {fix.status === 'done' && fix.prUrl && (
+            <a
+              href={fix.prUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex h-7 items-center gap-1.5 rounded-md border border-emerald-200 bg-emerald-50 px-2.5 text-xs font-medium text-emerald-800 hover:bg-emerald-100"
+            >
+              <CheckCircle2 className="h-3.5 w-3.5" />
+              View {prLabel}
+              <ExternalLink className="h-3 w-3" />
+            </a>
+          )}
+          {fix.status === 'error' && (
+            <span
+              title={fix.errorMsg}
+              className="inline-flex h-7 cursor-default items-center gap-1.5 rounded-md border border-red-200 bg-red-50 px-2.5 text-xs font-medium text-red-800"
+              onClick={() => setFix({ status: 'idle' })}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => e.key === 'Enter' && setFix({ status: 'idle' })}
+            >
+              <AlertTriangle className="h-3.5 w-3.5" />
+              Failed — retry
+            </span>
+          )}
+        </div>
       </div>
 
       {/* CVE list */}
@@ -320,6 +412,7 @@ export function RepoDrawer({ repo, open, onClose }: Readonly<RepoDrawerProps>) {
 
   const persistencePaths = repo.persistenceFiles.map((f) => f.path);
   const isPending = repo.status === 'pending';
+  const pendingSource = repo.provider === 'gitlab' ? 'GitLab' : 'GitHub';
 
   return (
     <Sheet open={open} onOpenChange={(v) => !v && onClose()}>
@@ -348,7 +441,7 @@ export function RepoDrawer({ repo, open, onClose }: Readonly<RepoDrawerProps>) {
             {/* Pending state */}
             {isPending && (
               <p className="rounded-md border border-dashed bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-                Listed from GitHub only. Package and vulnerability detail appears after you run{' '}
+                Listed from {pendingSource} only. Package and vulnerability detail appears after you run{' '}
                 <strong className="font-medium text-foreground">Run audit</strong>.
               </p>
             )}
@@ -377,7 +470,7 @@ export function RepoDrawer({ repo, open, onClose }: Readonly<RepoDrawerProps>) {
                 </h3>
                 <div className="space-y-4">
                   {repo.vulnPackages.map((pkg, i) => (
-                    <VulnPackageCard key={`${pkg.ecosystem}:${pkg.name}:${i}`} pkg={pkg} />
+                    <VulnPackageCard key={`${pkg.ecosystem}:${pkg.name}:${i}`} pkg={pkg} repo={repo} />
                   ))}
                 </div>
               </section>

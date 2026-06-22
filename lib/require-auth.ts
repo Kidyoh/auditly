@@ -1,5 +1,6 @@
 import { auth } from '@/auth';
 import { NextResponse } from 'next/server';
+import type { Provider } from '@/lib/types';
 
 export async function requireAuthSession() {
   const session = await auth();
@@ -7,8 +8,14 @@ export async function requireAuthSession() {
     return {
       session: null,
       accessToken: null,
+      provider: null as Provider | null,
       error: NextResponse.json({ error: 'Unauthorized' }, { status: 401 }),
     };
   }
-  return { session, accessToken: session.accessToken ?? null, error: null as null };
+  return {
+    session,
+    accessToken: session.accessToken ?? null,
+    provider: (session.provider ?? 'github') as Provider,
+    error: null,
+  };
 }
