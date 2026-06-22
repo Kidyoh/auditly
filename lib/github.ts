@@ -166,6 +166,87 @@ export async function updateFile(token: string, opts: UpdateFileOptions): Promis
   }
 }
 
+/** Returns the tree SHA of a commit (needed for multi-file commits). */
+export async function getCommitData(
+  token: string,
+  owner: string,
+  repo: string,
+  sha: string,
+): Promise<{ treeSha: string }> {
+  const res = await fetch(
+    `${GITHUB_API}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/commits/${sha}`,
+    { headers: buildHeaders(token) },
+  );
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`GitHub API error ${res.status} reading commit: ${text.slice(0, 300)}`);
+  }
+  const data = (await res.json()) as { tree: { sha: string } };
+  return { treeSha: data.tree.sha };
+}
+
+export interface TreeBlob {
+  path: string;
+  content: string;
+}
+
+/** Creates a new Git tree with the given file blobs on top of a base tree. */
+export async function createTree(
+  token: string,
+  owner: string,
+  repo: string,
+  baseTreeSha: string,
+  blobs: TreeBlob[],
+): Promise<string> {
+  const res = await fetch(
+    `${GITHUB_API}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/trees`,
+    {
+      method: 'POST',
+      headers: buildHeaders(token),
+      body: JSON.stringify({
+        base_tree: baseTreeSha,
+        tree: blobs.map(({ path, content }) => ({
+          path: stripLeadingSlash(path),
+          mode: '100644',
+          type: 'blob',
+          content,
+        })),
+      }),
+    },
+  );
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`GitHub API error ${res.status} creating tree: ${text.slice(0, 300)}`);
+  }
+  const data = (await res.json()) as { sha: string };
+  return data.sha;
+}
+
+/** Creates a Git commit object and returns its SHA. */
+export async function createGitCommit(
+  token: string,
+  owner: string,
+  repo: string,
+  message: string,
+  treeSha: string,
+  parentSha: string,
+): Promise<string> {
+  const res = await fetch(
+    `${GITHUB_API}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/commits`,
+    {
+      method: 'POST',
+      headers: buildHeaders(token),
+      body: JSON.stringify({ message, tree: treeSha, parents: [parentSha] }),
+    },
+  );
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`GitHub API error ${res.status} creating commit: ${text.slice(0, 300)}`);
+  }
+  const data = (await res.json()) as { sha: string };
+  return data.sha;
+}
+
 /** Creates a pull request. Returns the PR object including html_url. */
 export async function createPullRequest(
   token: string,

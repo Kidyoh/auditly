@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuthSession } from '@/lib/require-auth';
-import { createAutoFix } from '@/lib/fixer';
+import { createAutoFixAll } from '@/lib/fixer';
 import type { VulnPackage, Provider } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
@@ -10,8 +10,8 @@ interface FixRequestBody {
   repoName: string;
   branch: string;
   provider: Provider;
-  projectId?: number;
-  pkg: VulnPackage;
+  projectId?: number | null;
+  vulnPackages: VulnPackage[];
 }
 
 export async function POST(req: NextRequest) {
@@ -32,26 +32,26 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, message: 'Invalid request body.' }, { status: 400 });
   }
 
-  const { owner, repoName, branch, provider, projectId = null, pkg } = body;
+  const { owner, repoName, branch, provider, projectId = null, vulnPackages } = body;
 
-  if (!owner || !repoName || !branch || !provider || !pkg) {
+  if (!owner || !repoName || !branch || !provider || !Array.isArray(vulnPackages) || vulnPackages.length === 0) {
     return NextResponse.json(
-      { ok: false, message: 'Missing required fields: owner, repoName, branch, provider, pkg.' },
+      { ok: false, message: 'Missing required fields: owner, repoName, branch, provider, vulnPackages.' },
       { status: 400 },
     );
   }
 
   try {
-    const { prUrl, newVersion } = await createAutoFix(
+    const result = await createAutoFixAll(
       accessToken,
       provider,
       owner,
       repoName,
       branch,
-      projectId,
-      pkg,
+      projectId ?? null,
+      vulnPackages,
     );
-    return NextResponse.json({ ok: true, prUrl, newVersion });
+    return NextResponse.json({ ok: true, ...result });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Failed to create fix';
     console.error('[api/fix] failed:', err);

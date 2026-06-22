@@ -101,7 +101,7 @@ export async function getFileContent(
 
   const data = (await res.json()) as { content?: string; encoding?: string };
   if (data.encoding === 'base64' && data.content) {
-    return Buffer.from(data.content.replace(/\n/g, ''), 'base64').toString('utf-8');
+    return Buffer.from(data.content.replaceAll('\n', ''), 'base64').toString('utf-8');
   }
   return '';
 }
@@ -148,6 +148,35 @@ export async function updateFile(
     const text = await res.text().catch(() => '');
     throw new Error(`GitLab API error ${res.status} updating file: ${text.slice(0, 300)}`);
   }
+}
+
+export interface GitLabCommitAction {
+  action: 'create' | 'delete' | 'move' | 'update' | 'chmod';
+  file_path: string;
+  content: string;
+}
+
+/** Creates a single commit with multiple file changes. Returns commit SHA and web URL. */
+export async function createMultiFileCommit(
+  token: string,
+  projectId: number,
+  branch: string,
+  message: string,
+  actions: GitLabCommitAction[],
+): Promise<{ sha: string; web_url: string }> {
+  const res = await fetch(`${GITLAB_API}/projects/${projectId}/repository/commits`, {
+    method: 'POST',
+    headers: buildHeaders(token),
+    body: JSON.stringify({ branch, commit_message: message, actions }),
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`GitLab API error ${res.status} creating commit: ${text.slice(0, 300)}`);
+  }
+
+  const data = (await res.json()) as { id: string; web_url: string };
+  return { sha: data.id, web_url: data.web_url };
 }
 
 export async function createMergeRequest(

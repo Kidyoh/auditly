@@ -23,14 +23,28 @@ import {
   Link2,
   Wrench,
   Loader2,
+  GitCommitHorizontal,
+  ArrowRight,
 } from 'lucide-react';
 import { useState } from 'react';
-import type { CVEDetail, RepoScanResult, VulnPackage } from '@/lib/types';
+import type { CVEDetail, FixChange, RepoScanResult, VulnPackage } from '@/lib/types';
+
+// ─── types ────────────────────────────────────────────────────────────────────
 
 interface RepoDrawerProps {
   repo: RepoScanResult | null;
   open: boolean;
   onClose: () => void;
+}
+
+type FixStatus = 'idle' | 'loading' | 'done' | 'error';
+
+interface FixState {
+  status: FixStatus;
+  prUrl?: string;
+  commitUrl?: string;
+  changes?: FixChange[];
+  errorMsg?: string;
 }
 
 // ─── severity colour tokens ────────────────────────────────────────────────
@@ -99,13 +113,9 @@ function CveCard({ cve }: Readonly<{ cve: CVEDetail }>) {
   const osvHref = `https://osv.dev/vulnerability/${cve.id}`;
   const isGhsa = /^GHSA-/i.test(cve.id);
   const primaryHref = isGhsa ? `https://github.com/advisories/${cve.id}` : osvHref;
-  const primaryLabel = isGhsa ? 'GitHub Advisory' : 'OSV.dev';
 
   return (
-    <div
-      className={`rounded-lg border border-l-[3px] ${borderCls} ${bgCls} space-y-3 p-3.5`}
-    >
-      {/* Header row */}
+    <div className={`rounded-lg border border-l-[3px] ${borderCls} ${bgCls} space-y-3 p-3.5`}>
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="flex flex-wrap items-center gap-2">
           <a
@@ -136,11 +146,7 @@ function CveCard({ cve }: Readonly<{ cve: CVEDetail }>) {
         </div>
         <SeverityBadge severity={cve.severity} />
       </div>
-
-      {/* Summary */}
       <p className="text-xs leading-relaxed text-foreground/90">{cve.summary}</p>
-
-      {/* Aliases */}
       {cve.aliases.length > 0 && (
         <div className="flex flex-wrap items-center gap-1.5">
           <span className="text-[10px] font-medium text-muted-foreground">Also:</span>
@@ -168,8 +174,6 @@ function CveCard({ cve }: Readonly<{ cve: CVEDetail }>) {
           })}
         </div>
       )}
-
-      {/* Dates */}
       {(publishedLabel || modifiedLabel) && (
         <div className="flex flex-wrap gap-3 text-[10px] text-muted-foreground">
           {publishedLabel && (
@@ -187,55 +191,9 @@ function CveCard({ cve }: Readonly<{ cve: CVEDetail }>) {
   );
 }
 
-// ─── fix button state ─────────────────────────────────────────────────────
-type FixStatus = 'idle' | 'loading' | 'done' | 'error';
-
-interface FixState {
-  status: FixStatus;
-  prUrl?: string;
-  newVersion?: string;
-  errorMsg?: string;
-}
-
-interface VulnPackageCardProps {
-  pkg: VulnPackage;
-  repo: RepoScanResult;
-}
-
-function VulnPackageCard({ pkg, repo }: Readonly<VulnPackageCardProps>) {
-  const [fix, setFix] = useState<FixState>({ status: 'idle' });
-
-  async function handleFix() {
-    setFix({ status: 'loading' });
-    try {
-      const res = await fetch('/api/fix', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          owner: repo.owner,
-          repoName: repo.repoName,
-          branch: repo.defaultBranch,
-          provider: repo.provider,
-          projectId: repo.provider === 'gitlab' ? Number(repo.repoId) : null,
-          pkg,
-        }),
-      });
-      const data = (await res.json()) as { ok: boolean; prUrl?: string; newVersion?: string; message?: string };
-      if (!res.ok || !data.ok) {
-        setFix({ status: 'error', errorMsg: data.message ?? 'Fix failed' });
-      } else {
-        setFix({ status: 'done', prUrl: data.prUrl, newVersion: data.newVersion });
-      }
-    } catch {
-      setFix({ status: 'error', errorMsg: 'Network error. Please try again.' });
-    }
-  }
-
-  const prLabel = repo.provider === 'gitlab' ? 'MR' : 'PR';
-
+function VulnPackageCard({ pkg }: Readonly<{ pkg: VulnPackage }>) {
   return (
     <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
-      {/* Package header */}
       <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border/60 bg-surface-subtle/50 px-4 py-3">
         <div className="min-w-0 space-y-1">
           <div className="flex flex-wrap items-center gap-2">
@@ -252,64 +210,15 @@ function VulnPackageCard({ pkg, repo }: Readonly<VulnPackageCardProps>) {
           </div>
           <p className="truncate text-[11px] text-muted-foreground">{pkg.manifestFile}</p>
         </div>
-        <div className="flex shrink-0 items-center gap-2">
-          <SeverityBadge severity={pkg.severity} />
-          {/* Fix button / result */}
-          {fix.status === 'idle' && (
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-7 gap-1.5 px-2.5 text-xs"
-              onClick={handleFix}
-            >
-              <Wrench className="h-3.5 w-3.5" />
-              Fix
-            </Button>
-          )}
-          {fix.status === 'loading' && (
-            <Button size="sm" variant="outline" className="h-7 gap-1.5 px-2.5 text-xs" disabled>
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              Fixing…
-            </Button>
-          )}
-          {fix.status === 'done' && fix.prUrl && (
-            <a
-              href={fix.prUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex h-7 items-center gap-1.5 rounded-md border border-emerald-200 bg-emerald-50 px-2.5 text-xs font-medium text-emerald-800 hover:bg-emerald-100"
-            >
-              <CheckCircle2 className="h-3.5 w-3.5" />
-              View {prLabel}
-              <ExternalLink className="h-3 w-3" />
-            </a>
-          )}
-          {fix.status === 'error' && (
-            <span
-              title={fix.errorMsg}
-              className="inline-flex h-7 cursor-default items-center gap-1.5 rounded-md border border-red-200 bg-red-50 px-2.5 text-xs font-medium text-red-800"
-              onClick={() => setFix({ status: 'idle' })}
-              role="button"
-              tabIndex={0}
-              onKeyDown={(e) => e.key === 'Enter' && setFix({ status: 'idle' })}
-            >
-              <AlertTriangle className="h-3.5 w-3.5" />
-              Failed — retry
-            </span>
-          )}
-        </div>
+        <SeverityBadge severity={pkg.severity} />
       </div>
-
-      {/* CVE list */}
-      {pkg.vulnerabilities.length > 0 ? (
+      {pkg.vulnerabilities.length > 0 && (
         <div className="space-y-2.5 p-3.5">
           {pkg.vulnerabilities.map((cve) => (
             <CveCard key={cve.id} cve={cve} />
           ))}
         </div>
-      ) : null}
-
-      {/* Watchlist-only explanation (no OSV hits) */}
+      )}
       {pkg.isWatchlisted && pkg.vulnerabilities.length === 0 && (
         <div className="border-l-[3px] border-l-red-500 bg-red-50/50 p-3.5">
           <p className="text-xs leading-relaxed text-red-800">
@@ -321,6 +230,104 @@ function VulnPackageCard({ pkg, repo }: Readonly<VulnPackageCardProps>) {
     </div>
   );
 }
+
+// ─── fix result panel ─────────────────────────────────────────────────────────
+
+function FixResultPanel({
+  fix,
+  prLabel,
+  onRetry,
+}: Readonly<{
+  fix: FixState;
+  prLabel: string;
+  onRetry: () => void;
+}>) {
+  if (fix.status === 'idle') return null;
+
+  if (fix.status === 'loading') {
+    return (
+      <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
+        <Loader2 className="h-4 w-4 animate-spin shrink-0" />
+        Fetching latest versions and creating {prLabel}…
+      </div>
+    );
+  }
+
+  if (fix.status === 'error') {
+    return (
+      <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3">
+        <p className="text-xs font-medium text-red-800">{fix.errorMsg ?? 'Fix failed.'}</p>
+        <button
+          type="button"
+          onClick={onRetry}
+          className="mt-1.5 text-[11px] text-red-600 underline-offset-2 hover:underline"
+        >
+          Try again
+        </button>
+      </div>
+    );
+  }
+
+  // done
+  return (
+    <div className="space-y-3 rounded-lg border border-emerald-200 bg-emerald-50/80 p-4">
+      {/* Links row */}
+      <div className="flex flex-wrap gap-2">
+        {fix.prUrl && (
+          <a
+            href={fix.prUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1.5 rounded-md border border-emerald-300 bg-white px-3 py-1.5 text-xs font-medium text-emerald-800 shadow-sm hover:bg-emerald-50"
+          >
+            <ExternalLink className="h-3.5 w-3.5" />
+            View {prLabel}
+          </a>
+        )}
+        {fix.commitUrl && (
+          <a
+            href={fix.commitUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1.5 rounded-md border border-emerald-300 bg-white px-3 py-1.5 text-xs font-medium text-emerald-800 shadow-sm hover:bg-emerald-50"
+          >
+            <GitCommitHorizontal className="h-3.5 w-3.5" />
+            View commit
+          </a>
+        )}
+      </div>
+
+      {/* Change table */}
+      {fix.changes && fix.changes.length > 0 && (
+        <div className="overflow-hidden rounded-md border border-emerald-200 bg-white">
+          <div className="border-b border-emerald-100 px-3 py-1.5">
+            <span className="text-[10px] font-semibold uppercase tracking-wide text-emerald-700">
+              {fix.changes.length} package{fix.changes.length === 1 ? '' : 's'} bumped
+            </span>
+          </div>
+          <ul className="divide-y divide-emerald-50">
+            {fix.changes.map((c) => (
+              <li key={`${c.name}:${c.manifestFile}`} className="flex items-center gap-2 px-3 py-2">
+                <span className="min-w-0 flex-1 truncate font-mono text-xs font-medium text-foreground">
+                  {c.name}
+                </span>
+                <span className="shrink-0 font-mono text-[10px] text-muted-foreground line-through">
+                  {c.oldVersion}
+                </span>
+                <ArrowRight className="h-3 w-3 shrink-0 text-emerald-500" />
+                <span className="shrink-0 font-mono text-[10px] font-semibold text-emerald-700">
+                  {c.newVersion}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── repo meta ────────────────────────────────────────────────────────────────
 
 function RepoMeta({ repo }: Readonly<{ repo: RepoScanResult }>) {
   const scannedLabel = repo.scannedAt ? fmtDate(repo.scannedAt) : null;
@@ -347,7 +354,7 @@ function RepoMeta({ repo }: Readonly<{ repo: RepoScanResult }>) {
         </span>
       )}
       {scannedLabel && (
-        <span className="flex items-center gap-1.5 ml-auto">
+        <span className="ml-auto flex items-center gap-1.5">
           <Clock className="h-3.5 w-3.5" />
           Scanned {scannedLabel}
         </span>
@@ -368,9 +375,7 @@ function AllPackagesList({ repo }: Readonly<{ repo: RepoScanResult }>) {
     return <p className="text-sm text-muted-foreground">No manifest files found.</p>;
   }
 
-  const vulnSet = new Set(
-    repo.vulnPackages.map((v) => `${v.ecosystem}:${v.name}`),
-  );
+  const vulnSet = new Set(repo.vulnPackages.map((v) => `${v.ecosystem}:${v.name}`));
 
   return (
     <div className="divide-y divide-border overflow-hidden rounded-lg border border-border bg-card">
@@ -387,9 +392,7 @@ function AllPackagesList({ repo }: Readonly<{ repo: RepoScanResult }>) {
               ) : (
                 <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-500/70" />
               )}
-              <span
-                className={`truncate font-mono text-xs ${isVuln ? 'font-medium text-orange-900' : 'text-foreground'}`}
-              >
+              <span className={`truncate font-mono text-xs ${isVuln ? 'font-medium text-orange-900' : 'text-foreground'}`}>
                 {pkg.name}
               </span>
             </div>
@@ -406,16 +409,65 @@ function AllPackagesList({ repo }: Readonly<{ repo: RepoScanResult }>) {
   );
 }
 
-// ─── main export ──────────────────────────────────────────────────────────
+// ─── main export ──────────────────────────────────────────────────────────────
+
 export function RepoDrawer({ repo, open, onClose }: Readonly<RepoDrawerProps>) {
+  const [fix, setFix] = useState<FixState>({ status: 'idle' });
+
+  // Reset fix state when the drawer switches to a different repo
+  const repoKey = repo ? `${repo.owner}/${repo.repoName}` : null;
+
+  async function handleFixAll() {
+    if (!repo) return;
+    setFix({ status: 'loading' });
+    try {
+      const res = await fetch('/api/fix', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          owner: repo.owner,
+          repoName: repo.repoName,
+          branch: repo.defaultBranch,
+          provider: repo.provider,
+          projectId: repo.provider === 'gitlab' ? Number(repo.repoId) : null,
+          vulnPackages: repo.vulnPackages,
+        }),
+      });
+      const data = (await res.json()) as {
+        ok: boolean;
+        prUrl?: string;
+        commitUrl?: string;
+        changes?: FixChange[];
+        message?: string;
+      };
+      if (!res.ok || !data.ok) {
+        setFix({ status: 'error', errorMsg: data.message ?? 'Fix failed.' });
+      } else {
+        setFix({ status: 'done', prUrl: data.prUrl, commitUrl: data.commitUrl, changes: data.changes });
+      }
+    } catch {
+      setFix({ status: 'error', errorMsg: 'Network error. Please try again.' });
+    }
+  }
+
   if (!repo) return null;
 
   const persistencePaths = repo.persistenceFiles.map((f) => f.path);
   const isPending = repo.status === 'pending';
   const pendingSource = repo.provider === 'gitlab' ? 'GitLab' : 'GitHub';
+  const prLabel = repo.provider === 'gitlab' ? 'MR' : 'PR';
+  const hasVulns = repo.vulnPackages.length > 0;
 
   return (
-    <Sheet open={open} onOpenChange={(v) => !v && onClose()}>
+    <Sheet
+      open={open}
+      onOpenChange={(v) => {
+        if (!v) {
+          onClose();
+          setFix({ status: 'idle' });
+        }
+      }}
+    >
       <SheetContent side="right" className="flex w-full flex-col p-0 sm:max-w-2xl lg:max-w-3xl">
         {/* Header */}
         <SheetHeader className="shrink-0 border-b border-border px-6 pb-4 pt-6">
@@ -438,7 +490,7 @@ export function RepoDrawer({ repo, open, onClose }: Readonly<RepoDrawerProps>) {
         <ScrollArea className="min-h-0 flex-1">
           <div className="space-y-7 px-6 py-5">
 
-            {/* Pending state */}
+            {/* Pending */}
             {isPending && (
               <p className="rounded-md border border-dashed bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
                 Listed from {pendingSource} only. Package and vulnerability detail appears after you run{' '}
@@ -454,29 +506,69 @@ export function RepoDrawer({ repo, open, onClose }: Readonly<RepoDrawerProps>) {
             )}
 
             {/* Persistence */}
-            {persistencePaths.length > 0 && (
-              <PersistenceAlert paths={persistencePaths} />
-            )}
+            {persistencePaths.length > 0 && <PersistenceAlert paths={persistencePaths} />}
 
             {/* Vulnerabilities */}
-            {repo.vulnPackages.length > 0 && (
+            {hasVulns && (
               <section className="space-y-3">
-                <h3 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                {/* Section header with Fix All button */}
+                <div className="flex items-center gap-2">
                   <AlertTriangle className="h-3.5 w-3.5 text-orange-400" />
-                  Vulnerable packages
-                  <span className="ml-auto rounded-full border border-hairline bg-card px-2 py-0.5 text-[10px] font-medium normal-case tracking-normal text-foreground">
+                  <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Vulnerable packages
+                  </h3>
+                  <span className="rounded-full border border-hairline bg-card px-2 py-0.5 text-[10px] font-medium text-foreground">
                     {repo.vulnPackages.length}
                   </span>
-                </h3>
+                  <div className="ml-auto">
+                    {fix.status === 'idle' && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 gap-1.5 px-3 text-xs"
+                        onClick={handleFixAll}
+                        key={repoKey}
+                      >
+                        <Wrench className="h-3.5 w-3.5" />
+                        Fix all
+                      </Button>
+                    )}
+                    {fix.status === 'loading' && (
+                      <Button size="sm" variant="outline" className="h-7 gap-1.5 px-3 text-xs" disabled>
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        Fixing…
+                      </Button>
+                    )}
+                    {(fix.status === 'done' || fix.status === 'error') && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 px-2 text-[11px] text-muted-foreground"
+                        onClick={() => setFix({ status: 'idle' })}
+                      >
+                        Reset
+                      </Button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Fix result */}
+                <FixResultPanel
+                  fix={fix}
+                  prLabel={prLabel}
+                  onRetry={() => setFix({ status: 'idle' })}
+                />
+
+                {/* Package cards */}
                 <div className="space-y-4">
                   {repo.vulnPackages.map((pkg, i) => (
-                    <VulnPackageCard key={`${pkg.ecosystem}:${pkg.name}:${i}`} pkg={pkg} repo={repo} />
+                    <VulnPackageCard key={`${pkg.ecosystem}:${pkg.name}:${i}`} pkg={pkg} />
                   ))}
                 </div>
               </section>
             )}
 
-            {/* Clean result */}
+            {/* Clean */}
             {!isPending && repo.status === 'clean' && (
               <div className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
                 <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />

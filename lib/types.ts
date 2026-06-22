@@ -60,6 +60,13 @@ export interface ScanResult {
   hasPersistenceRisk: boolean;
 }
 
+export interface FixChange {
+  name: string;
+  oldVersion: string;
+  newVersion: string;
+  manifestFile: string;
+}
+
 export type ScanEventType = 'start' | 'repo_start' | 'repo_done' | 'complete' | 'error';
 
 export interface ScanProgressEvent {

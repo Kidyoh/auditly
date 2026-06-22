@@ -271,11 +271,18 @@ export async function runScan(
     timestamp: new Date().toISOString(),
   });
 
-  if (provider === 'gitlab') {
-    return runGitLabScan(token, onProgress, scanId, startedAt, targetRepoIds);
-  }
+  const result = await (provider === 'gitlab'
+    ? runGitLabScan(token, onProgress, scanId, startedAt, targetRepoIds)
+    : runGitHubScan(token, onProgress, scanId, startedAt, targetRepoIds));
 
-  return runGitHubScan(token, onProgress, scanId, startedAt, targetRepoIds);
+  onProgress({
+    type: 'complete',
+    message: `Scan complete. ${result.totalRepos} repo${result.totalRepos === 1 ? '' : 's'} scanned.`,
+    scanResult: result,
+    timestamp: new Date().toISOString(),
+  });
+
+  return result;
 }
 
 async function runGitHubScan(
